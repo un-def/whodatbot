@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from http import HTTPStatus
+from urllib.parse import urljoin
 
 import aiohttp
 from aiohttp import web
@@ -40,11 +41,15 @@ class WhoDatBot:
         finally:
             await runner.cleanup()
 
-    def set_webhook(self, url):
+    def set_webhook(self, base_url):
+        url = urljoin(base_url, self.secret)
         return self._call_api('setWebhook', url=url)
 
     async def _call_api(self, method, **params):
         url = f'{self.base_api_url}/{method}'
+        self.log.debug(f'Telegram API call: method={method} params={params}')
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=params) as response:
-                return await response.json()
+                response_json = await response.json()
+        self.log.debug(f'Telegram API response: {response_json}')
+        return response_json

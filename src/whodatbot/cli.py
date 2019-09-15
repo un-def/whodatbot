@@ -62,8 +62,9 @@ def parse_args():
     )
     parser.add_argument(
         '--set-webhook',
-        help='set webhook URL',
+        help='set webhook URL (without <SECRET>, e.g., https://example.com/)',
         required=False,
+        metavar='URL',
     )
     return parser.parse_args()
 
