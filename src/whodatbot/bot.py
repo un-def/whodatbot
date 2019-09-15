@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from http import HTTPStatus
 
 import aiohttp
 from aiohttp import web
@@ -11,18 +12,21 @@ class WhoDatBot:
 
     log = logging.getLogger(__name__)
 
-    def __init__(self, *, token, port):
+    def __init__(self, *, token, port, secret):
         self.base_api_url = self.BASE_API_URL_TEMPLATE.format(token=token)
         self.port = port
+        self.secret = secret
 
     async def handler(self, request):
-        if request.method != 'POST':
-            return web.Response(status=405)
+        # Obscure (hah) any error with 403 FORBIDDEN
+        error_status = HTTPStatus.FORBIDDEN
+        if request.method != 'POST' or request.path.strip('/') != self.secret:
+            return web.Response(status=error_status)
         try:
             self.log.debug(await request.json())
         except ValueError:
-            return web.Response(status=400)
-        return web.Response(status=204)
+            return web.Response(status=error_status)
+        return web.Response(status=HTTPStatus.NO_CONTENT)
 
     async def serve(self):
         server = web.Server(self.handler)
