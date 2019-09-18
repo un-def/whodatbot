@@ -2,32 +2,37 @@ import argparse
 import asyncio
 import logging
 import os
+from typing import Any, Callable
 
 from .bot import WhoDatBot
 
 
-def _noop_setter(instance, value):
+def _noop_setter(instance: Any, value: Any) -> None:
     pass
 
 
-def careless_property(func):
+def careless_property(func: Callable[[Any], Any]) -> property:
     return property(func, _noop_setter)
 
 
 class StoreEnvVarAction(argparse._StoreAction):
 
-    def __init__(self, *, envvar, default=None, required=False, **kwargs):
+    def __init__(
+        self, *, envvar: str, default: Any = None, required: bool = False,
+        **kwargs: Any,
+    ):
         super().__init__(**kwargs)
         self.__envvar = envvar
         self.__default = default
         self.__required = required
 
     @careless_property
-    def default(self):
+    def default(self) -> Any:
         return os.environ.get(self.__envvar, self.__default)
 
+    # see https://github.com/python/mypy/issues/4125
     @careless_property
-    def required(self):
+    def required(self) -> bool:   # type: ignore
         if not self.__required:
             return False
         if self.__envvar in os.environ:
@@ -35,7 +40,14 @@ class StoreEnvVarAction(argparse._StoreAction):
         return True
 
 
-def parse_args():
+class Args(argparse.Namespace):
+
+    token: str
+    port: int
+    secret: str
+
+
+def parse_args() -> Args:
     parser = argparse.ArgumentParser(prog=__package__)
     parser.register('action', 'store_envvar', StoreEnvVarAction)
     parser.add_argument(
@@ -66,17 +78,21 @@ def parse_args():
         required=False,
         metavar='URL',
     )
-    return parser.parse_args()
+    return parser.parse_args(namespace=Args())
 
 
-async def main_coro():
+async def main_coro() -> None:
     args = parse_args()
-    bot = WhoDatBot(token=args.token, port=args.port, secret=args.secret)
+    bot = WhoDatBot(
+        token=args.token,
+        port=args.port,
+        secret=args.secret,
+    )
     if args.set_webhook:
         await bot.set_webhook(args.set_webhook)
     await bot.serve()
 
 
-def main():
+def main() -> None:
     logging.basicConfig(level=logging.DEBUG)
     asyncio.run(main_coro())
