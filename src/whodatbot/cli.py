@@ -90,7 +90,11 @@ async def main_coro() -> None:
     )
     if args.set_webhook:
         await bot.set_webhook(args.set_webhook)
-    await bot.serve()
+    await bot.get_username()
+    try:
+        await bot.serve()
+    finally:
+        await bot.close()
 
 
 def main() -> None:

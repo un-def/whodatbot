@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from http import HTTPStatus
-from typing import Any
+from typing import Any, Awaitable, Optional, cast
 from urllib.parse import urljoin
 
 import aiohttp
@@ -15,10 +15,20 @@ class WhoDatBot:
 
     log = logging.getLogger(__name__)
 
-    def __init__(self, *, token: str, port: int, secret: str) -> None:
+    def __init__(
+        self, *, token: str, port: int, secret: str,
+        loop: Optional[asyncio.AbstractEventLoop] = None,
+    ) -> None:
+        if loop is None:
+            loop = asyncio.get_event_loop()
+        self._loop = loop
+        self._session = aiohttp.ClientSession(loop=loop)
         self.base_api_url = self.BASE_API_URL_TEMPLATE.format(token=token)
         self.port = port
         self.secret = secret
+
+    async def close(self) -> None:
+        await self._session.close()
 
     async def handler(self, request: BaseRequest) -> Response:
         # Obscure (hah) any error with 403 FORBIDDEN
@@ -43,15 +53,20 @@ class WhoDatBot:
         finally:
             await runner.cleanup()
 
-    def set_webhook(self, base_url: str) -> Any:
+    def set_webhook(self, base_url: str) -> Awaitable[Any]:
         url = urljoin(base_url, self.secret)
         return self._call_api('setWebhook', url=url)
+
+    async def get_username(self) -> str:
+        response = await self._call_api('getMe')
+        username = cast(str, response['result']['username'])
+        self.log.debug('Bot username: %s', username)
+        return username
 
     async def _call_api(self, method: str, **params: Any) -> Any:
         url = f'{self.base_api_url}/{method}'
         self.log.debug(f'Telegram API call: method={method} params={params}')
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=params) as response:
-                response_json = await response.json()
+        async with self._session.post(url, json=params) as response:
+            response_json = await response.json()
         self.log.debug(f'Telegram API response: {response_json}')
         return response_json
