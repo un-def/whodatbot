@@ -2,7 +2,7 @@ import argparse
 import asyncio
 import logging
 import os
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from .bot import WhoDatBot
 
@@ -44,7 +44,8 @@ class Args(argparse.Namespace):
 
     token: str
     port: int
-    secret: str
+    webhook_secret: str
+    webhook_base_url: Optional[str]
 
 
 def parse_args() -> Args:
@@ -66,15 +67,18 @@ def parse_args() -> Args:
         required=True,
     )
     parser.add_argument(
-        '--secret',
+        '--webhook-secret',
         help='secret part of webhook URL: https://example.com/<SECRET>',
         action='store_envvar',
         envvar='WHODATBOT_WEBHOOK_SECRET',
         required=True,
+        metavar='SECRET',
     )
     parser.add_argument(
-        '--set-webhook',
-        help='set webhook URL (without <SECRET>, e.g., https://example.com/)',
+        '--webhook-base-url',
+        action='store_envvar',
+        envvar='WHODATBOT_WEBHOOK_BASE_URL',
+        help='webhook base URL (without <SECRET>, e.g., https://example.com/)',
         required=False,
         metavar='URL',
     )
@@ -86,12 +90,11 @@ async def main_coro() -> None:
     bot = WhoDatBot(
         token=args.token,
         port=args.port,
-        secret=args.secret,
+        webhook_secret=args.webhook_secret,
+        webhook_base_url=args.webhook_base_url,
     )
-    if args.set_webhook:
-        await bot.set_webhook(args.set_webhook)
-    await bot.get_username()
     try:
+        await bot.init()
         await bot.serve()
     finally:
         await bot.close()
