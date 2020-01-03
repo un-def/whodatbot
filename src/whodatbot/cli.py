@@ -40,7 +40,7 @@ class StoreEnvVarAction(argparse._StoreAction):
         return True
 
 
-class Args(argparse.Namespace):
+class Args:
 
     token: str
     port: int
