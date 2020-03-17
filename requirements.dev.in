@@ -1,0 +1,6 @@
+-c requirements.txt
+tox
+pytest
+mypy
+flake8
+pip-tools
