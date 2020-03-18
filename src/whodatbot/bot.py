@@ -8,6 +8,9 @@ import aiohttp
 from aiohttp import web
 from aiohttp.web import BaseRequest, Response
 
+from .types import Message, Update
+from .utils import extract_users
+
 
 class WhoDatBot:
 
@@ -47,9 +50,13 @@ class WhoDatBot:
         if request.method != 'POST' or request.path.strip('/') != self._secret:
             return Response(status=error_status)
         try:
-            self.log.debug(await request.json())
+            update: Update = await request.json()
         except ValueError:
             return Response(status=error_status)
+        if 'message' in update:
+            message: Message = update['message']
+            for user in extract_users(message):
+                self.log.info(user)
         return Response(status=HTTPStatus.NO_CONTENT)
 
     async def serve(self) -> None:
