@@ -95,7 +95,7 @@ async def main_coro() -> None:
     )
     try:
         await bot.init()
-        await bot.serve()
+        await bot.run()
     finally:
         await bot.close()
 

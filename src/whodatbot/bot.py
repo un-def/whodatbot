@@ -9,14 +9,44 @@ from aiohttp import web
 from aiohttp.web import BaseRequest, Response
 
 from .types import Message, Update
-from .utils import extract_users
+from .utils import extract_users, LoggerDescriptor
+
+
+class UpdateDispatcher:
+
+    log = LoggerDescriptor()
+
+    def __init__(self) -> None:
+        self.queue: asyncio.Queue[Optional[Update]] = asyncio.Queue()
+        self._running = False
+
+    async def run(self) -> None:
+        if self._running:
+            return
+        self.log.info('starting dispatcher')
+        self._running = True
+        try:
+            while True:
+                update = await self.queue.get()
+                if update is None:
+                    break
+                if 'message' in update:
+                    message: Message = update['message']
+                    for user in extract_users(message):
+                        self.log.info(user)
+                else:
+                    self.log.info('unsupported update type')
+        finally:
+            self.log.info('stopping dispatcher')
+            self._running = False
 
 
 class WhoDatBot:
 
     BASE_API_URL_TEMPLATE = 'https://api.telegram.org/bot{token}'
+    dispatcher_class = UpdateDispatcher
 
-    log = logging.getLogger(__name__)
+    log = LoggerDescriptor()
 
     def __init__(
         self, *, token: str, port: int,
@@ -34,17 +64,20 @@ class WhoDatBot:
             self._webhook_url = urljoin(webhook_base_url, self._secret)
         else:
             self._webhook_url = None
+        self._dispatcher = self.dispatcher_class()
 
     async def init(self) -> None:
         self._session = aiohttp.ClientSession(loop=self._loop)
         self._username = await self.get_username()
         if self._webhook_url:
             await self.set_webhook(self._webhook_url)
+        self._dispatcher_task = asyncio.create_task(self._dispatcher.run())
 
     async def close(self) -> None:
         await self._session.close()
 
     async def handler(self, request: BaseRequest) -> Response:
+        dispatcher_queue = self._dispatcher.queue
         # Obscure (hah) any error with 403 FORBIDDEN
         error_status = HTTPStatus.FORBIDDEN
         if request.method != 'POST' or request.path.strip('/') != self._secret:
@@ -53,13 +86,10 @@ class WhoDatBot:
             update: Update = await request.json()
         except ValueError:
             return Response(status=error_status)
-        if 'message' in update:
-            message: Message = update['message']
-            for user in extract_users(message):
-                self.log.info(user)
+        dispatcher_queue.put_nowait(update)
         return Response(status=HTTPStatus.NO_CONTENT)
 
-    async def serve(self) -> None:
+    async def run(self) -> None:
         server = web.Server(self.handler)
         runner = web.ServerRunner(server, handle_signals=True)
         await runner.setup()
@@ -68,8 +98,14 @@ class WhoDatBot:
             await site.start()
             while True:
                 await asyncio.sleep(3600)
+            await self._dispatcher.queue.put(None)
         finally:
             await runner.cleanup()
+            current_task = asyncio.current_task()
+            tasks = [t for t in asyncio.all_tasks() if t is not current_task]
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     def set_webhook(self, url: str) -> Awaitable[Any]:
         return self._call_api('setWebhook', url=url)

@@ -1,6 +1,22 @@
-from typing import Any, Dict, List
+import logging
+from typing import Any, Dict, List, Optional, Type, TypeVar
 
-from .types import Message, UserID, User
+from .types import Message, User, UserID
+
+
+T = TypeVar('T')
+
+
+class LoggerDescriptor:
+
+    def __get__(self, instance: T, owner: Type[T]) -> logging.Logger:
+        name = f'{owner.__module__}.{owner.__qualname__}'
+        logger = logging.getLogger(name)
+        setattr(owner, self._logger_attr_name, logger)
+        return logger
+
+    def __set_name__(self, owner: Type[T], name: str) -> None:
+        self._logger_attr_name = name
 
 
 def _extract_users(dct: Dict[str, Any], accum: Dict[UserID, User]) -> None:
