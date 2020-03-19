@@ -1,5 +1,7 @@
-import pytest
 import operator
+
+import pytest
+
 from whodatbot.utils import extract_users
 
 

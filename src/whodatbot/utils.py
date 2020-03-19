@@ -11,12 +11,20 @@ class LoggerDescriptor:
 
     def __get__(self, instance: T, owner: Type[T]) -> logging.Logger:
         name = f'{owner.__module__}.{owner.__qualname__}'
+        if instance is None:
+            obj = owner
+        else:
+            obj = instance
+        logger: Optional[logging.Logger]
+        logger = getattr(obj, self._logger_attr_name, None)
+        if logger is not None:
+            return logger
         logger = logging.getLogger(name)
-        setattr(owner, self._logger_attr_name, logger)
+        setattr(obj, self._logger_attr_name, logger)
         return logger
 
     def __set_name__(self, owner: Type[T], name: str) -> None:
-        self._logger_attr_name = name
+        self._logger_attr_name = f'__{name}'
 
 
 def _extract_users(dct: Dict[str, Any], accum: Dict[UserID, User]) -> None:

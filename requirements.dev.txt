@@ -4,29 +4,47 @@
 #
 #    pip-compile --output-file=requirements.dev.txt requirements.dev.in
 #
-appdirs==1.4.3            # via virtualenv
+appdirs==1.4.3            # via ptpython, virtualenv
 attrs==19.3.0             # via -c requirements.txt, pytest
+backcall==0.1.0           # via ipython
 click==7.1.1              # via pip-tools
+decorator==4.4.2          # via ipython, traitlets
 distlib==0.3.0            # via virtualenv
 entrypoints==0.3          # via flake8
 filelock==3.0.12          # via tox, virtualenv
 flake8==3.7.9             # via -r requirements.dev.in
+ipython-genutils==0.2.0   # via traitlets
+ipython==7.13.0           # via ptipython
+isort==4.3.21             # via -r requirements.dev.in
+jedi==0.16.0              # via ipython, ptpython
 mccabe==0.6.1             # via flake8
 more-itertools==8.2.0     # via pytest
 mypy-extensions==0.4.3    # via mypy
 mypy==0.770               # via -r requirements.dev.in
 packaging==20.3           # via pytest, tox
+parso==0.6.2              # via jedi
+pexpect==4.8.0            # via ipython
+pickleshare==0.7.5        # via ipython
 pip-tools==4.5.1          # via -r requirements.dev.in
 pluggy==0.13.1            # via pytest, tox
+prompt-toolkit==3.0.4     # via ipython, ptpython
+ptipython==1.0.1          # via -r requirements.dev.in
+ptpython==3.0.1           # via ptipython
+ptyprocess==0.6.0         # via pexpect
 py==1.8.1                 # via pytest, tox
 pycodestyle==2.5.0        # via flake8
 pyflakes==2.1.1           # via flake8
+pygments==2.6.1           # via ipython, ptpython
 pyparsing==2.4.6          # via packaging
 pytest==5.4.1             # via -r requirements.dev.in
-six==1.14.0               # via packaging, pip-tools, tox, virtualenv
+six==1.14.0               # via packaging, pip-tools, tox, traitlets, virtualenv
 toml==0.10.0              # via tox
 tox==3.14.5               # via -r requirements.dev.in
+traitlets==4.3.3          # via ipython
 typed-ast==1.4.1          # via mypy
 typing-extensions==3.7.4.1  # via mypy
 virtualenv==20.0.10       # via tox
-wcwidth==0.1.8            # via pytest
+wcwidth==0.1.8            # via prompt-toolkit, pytest
+
+# The following packages are considered to be unsafe in a requirements file:
+# setuptools

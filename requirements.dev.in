@@ -1,6 +1,10 @@
 -c requirements.txt
+
 tox
 pytest
 mypy
 flake8
+isort
+
 pip-tools
+ptipython

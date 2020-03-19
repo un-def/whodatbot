@@ -1,7 +1,6 @@
 import asyncio
-import logging
 from http import HTTPStatus
-from typing import Any, Awaitable, Optional, cast
+from typing import Any, Awaitable, Dict, Optional, cast
 from urllib.parse import urljoin
 
 import aiohttp
@@ -9,7 +8,7 @@ from aiohttp import web
 from aiohttp.web import BaseRequest, Response
 
 from .types import Message, Update
-from .utils import extract_users, LoggerDescriptor
+from .utils import LoggerDescriptor, extract_users
 
 
 class UpdateDispatcher:
@@ -19,6 +18,7 @@ class UpdateDispatcher:
     def __init__(self) -> None:
         self.queue: asyncio.Queue[Optional[Update]] = asyncio.Queue()
         self._running = False
+        self._processor = UpdateProcessor()
 
     async def run(self) -> None:
         if self._running:
@@ -26,19 +26,56 @@ class UpdateDispatcher:
         self.log.info('starting dispatcher')
         self._running = True
         try:
-            while True:
-                update = await self.queue.get()
-                if update is None:
-                    break
-                if 'message' in update:
-                    message: Message = update['message']
-                    for user in extract_users(message):
-                        self.log.info(user)
-                else:
-                    self.log.info('unsupported update type')
+            await self._run()
         finally:
             self.log.info('stopping dispatcher')
             self._running = False
+
+    async def _run(self) -> None:
+        while True:
+            update = await self.queue.get()
+            if update is None:
+                break
+            try:
+                self._processor(update)
+            except Exception:
+                self.log.exception('')
+
+
+class UpdateProcessor:
+
+    log = LoggerDescriptor()
+    update_type: str
+    update_types: Dict[str, 'UpdateProcessor'] = {}
+
+    def __init_subclass__(cls, update_type: str) -> None:
+        if update_type in cls.update_types:
+            raise RuntimeError(f'already registered: {update_type}')
+        super().__init_subclass__()
+        cls.update_type = update_type
+        cls.update_types[update_type] = cls()
+
+    def __call__(self, update: Update) -> None:
+        self.log.info(update)
+        keys = list(update.keys())
+        if 'update_id' not in keys:
+            raise ValueError(f'update_id not found: {keys}')
+        keys.remove('update_id')
+        if len(keys) != 1:
+            raise ValueError(f'invalid update: {keys}')
+        update_type = keys[0]
+        if update_type not in self.update_types:
+            raise KeyError(f'unsupported update type: {update_type}')
+        processor = self.update_types[update_type]
+        processor(update)
+
+
+class MessageProcessor(UpdateProcessor, update_type='message'):
+
+    def __call__(self, update: Update) -> None:
+        message: Message = update[self.update_type]
+        for user in extract_users(message):
+            self.log.info(user)
 
 
 class WhoDatBot:
