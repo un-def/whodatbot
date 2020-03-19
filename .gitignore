@@ -7,3 +7,5 @@ dist/
 /requirements.txt
 
 .*
+!.gitignore
+!.travis.yml
