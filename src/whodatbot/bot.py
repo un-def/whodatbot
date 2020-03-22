@@ -1,12 +1,12 @@
 import asyncio
 from http import HTTPStatus
-from typing import Any, Awaitable, Dict, Optional, cast
+from typing import Dict, Optional
 from urllib.parse import urljoin
 
-import aiohttp
 from aiohttp import web
 from aiohttp.web import BaseRequest, Response
 
+from .client import BotAPIClient
 from .types import Message, Update
 from .utils import LoggerDescriptor, extract_users
 
@@ -80,7 +80,6 @@ class MessageProcessor(UpdateProcessor, update_type='message'):
 
 class WhoDatBot:
 
-    BASE_API_URL_TEMPLATE = 'https://api.telegram.org/bot{token}'
     dispatcher_class = UpdateDispatcher
 
     log = LoggerDescriptor()
@@ -90,10 +89,7 @@ class WhoDatBot:
         webhook_secret: str, webhook_base_url: Optional[str] = None,
         loop: Optional[asyncio.AbstractEventLoop] = None,
     ) -> None:
-        if loop is None:
-            loop = asyncio.get_event_loop()
-        self._loop = loop
-        self._base_api_url = self.BASE_API_URL_TEMPLATE.format(token=token)
+        self._token = token
         self._port = port
         self._secret = webhook_secret.strip('/')
         self._webhook_url: Optional[str]
@@ -101,17 +97,20 @@ class WhoDatBot:
             self._webhook_url = urljoin(webhook_base_url, self._secret)
         else:
             self._webhook_url = None
+        if loop is None:
+            loop = asyncio.get_event_loop()
+        self._loop = loop
         self._dispatcher = self.dispatcher_class()
 
     async def init(self) -> None:
-        self._session = aiohttp.ClientSession(loop=self._loop)
-        self._username = await self.get_username()
+        self._client = BotAPIClient(token=self._token, loop=self._loop)
+        self._username = await self._client.get_username()
         if self._webhook_url:
-            await self.set_webhook(self._webhook_url)
+            await self._client.set_webhook(self._webhook_url)
         self._dispatcher_task = asyncio.create_task(self._dispatcher.run())
 
     async def close(self) -> None:
-        await self._session.close()
+        await self._client.close()
 
     async def handler(self, request: BaseRequest) -> Response:
         dispatcher_queue = self._dispatcher.queue
@@ -143,20 +142,3 @@ class WhoDatBot:
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
-
-    def set_webhook(self, url: str) -> Awaitable[Any]:
-        return self._call_api('setWebhook', url=url)
-
-    async def get_username(self) -> str:
-        response = await self._call_api('getMe')
-        username = cast(str, response['result']['username'])
-        self.log.debug('Bot username: %s', username)
-        return username
-
-    async def _call_api(self, method: str, **params: Any) -> Any:
-        url = f'{self._base_api_url}/{method}'
-        self.log.debug(f'Telegram API call: method={method} params={params}')
-        async with self._session.post(url, json=params) as response:
-            response_json = await response.json()
-        self.log.debug(f'Telegram API response: {response_json}')
-        return response_json
