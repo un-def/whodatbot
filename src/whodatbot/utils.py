@@ -1,5 +1,6 @@
 import logging
-from typing import Any, Dict, List, Optional, Type, TypeVar
+import string
+from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar
 
 from .types import Message, User, UserID
 
@@ -25,6 +26,45 @@ class LoggerDescriptor:
 
     def __set_name__(self, owner: Type[T], name: str) -> None:
         self._logger_attr_name = f'__{name}'
+
+
+class TemplateFormatter(string.Formatter):
+
+    required_fields: Tuple[str, ...] = ()
+    optional_fields: Tuple[str, ...] = ()
+
+    def __init__(self, template: str) -> None:
+        self._template = template
+        self._check()
+
+    def __call__(self, **kwargs: Any) -> str:
+        return self.format(self._template, **kwargs)
+
+    def _check(self) -> None:
+        actual_fields = set()
+        for _, field, format_spec, conversion in self.parse(self._template):
+            if not field:
+                continue
+            if format_spec:
+                raise ValueError(f'format_spec is forbidden: {field}')
+            if conversion:
+                raise ValueError(f'conversion is forbidden: {field}')
+            if field in self.required_fields:
+                actual_fields.add(field)
+            elif field in self.optional_fields:
+                pass
+            else:
+                raise ValueError(f'unexpected field: {field}')
+        missing_fields = set(self.required_fields) - actual_fields
+        if missing_fields:
+            missing = ', '.join(sorted(missing_fields))
+            raise ValueError(f'missing field(s): {missing}')
+
+    def get_value(self, key, args, kwargs):   # type: ignore
+        assert not isinstance(key, int), 'unexpected positional formatting'
+        if key in kwargs:
+            return kwargs[key]
+        return f'{{{key}}}'
 
 
 def _extract_users(dct: Dict[str, Any], accum: Dict[UserID, User]) -> None:

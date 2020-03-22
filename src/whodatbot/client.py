@@ -1,37 +1,31 @@
 import asyncio
-import string
 from typing import Any, Awaitable, Optional, cast
 
 import aiohttp
 
-from .utils import LoggerDescriptor
+from .utils import LoggerDescriptor, TemplateFormatter
 
 
 DEFAULT_URL_TEMPLATE = 'https://api.telegram.org/bot{token}/{method}'
 
 
-class URLTemplateFormatter(string.Formatter):
+class URLTemplateFormatter(TemplateFormatter):
 
-    KEYS = ('token', 'method')
+    required_fields = ('token', 'method')
 
-    def __init__(self, template: str) -> None:
-        self._template = template
 
-    def get_value(self, key, args, kwargs):   # type: ignore
-        assert not isinstance(key, int), 'unexpected positional formatting'
-        if key in kwargs:
-            return kwargs[key]
-        return f'{{{key}}}'
+class BotAPIClientError(Exception):
 
-    def check_template(self) -> None:
-        template = self._template
-        expected = sorted((k, '', None) for k in self.KEYS)
-        actual = sorted(f[1:] for f in self.parse(template) if f[1])
-        if expected != actual:
-            raise ValueError(f'invalid url_template: {template}')
+    def __init__(self, error_code: int, description: str) -> None:
+        self.error_code = error_code
+        self.description = description
 
-    def format_template(self, **kwargs: Any) -> str:
-        return self.format(self._template, **kwargs)
+    def __str__(self) -> str:
+        cls_name = self.__class__.__name__
+        return f'<{cls_name}: [{self.error_code}] {self.description}>'
+
+    def __repr__(self) -> str:
+        return str(self)
 
 
 class BotAPIClient:
@@ -50,8 +44,7 @@ class BotAPIClient:
         if url_template is None:
             url_template = DEFAULT_URL_TEMPLATE
         url_formatter = URLTemplateFormatter(url_template)
-        url_formatter.check_template()
-        self._url_template = url_formatter.format_template(token=token)
+        self._url_template = url_formatter(token=token)
         self._session = aiohttp.ClientSession(loop=loop)
 
     async def close(self) -> None:
@@ -63,6 +56,11 @@ class BotAPIClient:
         async with self._session.post(url, json=params) as response:
             response_json = await response.json()
         self.log.debug(f'Telegram API response: {response_json}')
+        if not response_json['ok']:
+            raise BotAPIClientError(
+                error_code=response_json['error_code'],
+                description=response_json['description'],
+            )
         return response_json
 
     def set_webhook(self, url: str) -> Awaitable[Any]:

@@ -1,14 +1,20 @@
 import asyncio
 from http import HTTPStatus
 from typing import Dict, Optional
-from urllib.parse import urljoin
+from urllib.parse import urlparse
 
 from aiohttp import web
 from aiohttp.web import BaseRequest, Response
 
 from .client import BotAPIClient
 from .types import Message, Update
-from .utils import LoggerDescriptor, extract_users
+from .utils import LoggerDescriptor, TemplateFormatter, extract_users
+
+
+class WebhookURLFormatter(TemplateFormatter):
+
+    required_fields = ('secret',)
+    optional_fields = ('port',)
 
 
 class UpdateDispatcher:
@@ -85,18 +91,19 @@ class WhoDatBot:
     log = LoggerDescriptor()
 
     def __init__(
-        self, *, token: str, port: int,
-        webhook_secret: str, webhook_base_url: Optional[str] = None,
+        self, *,
+        token: str,
+        webhook_url_template: str,
+        webhook_secret: str,
+        webhook_port: int,
         loop: Optional[asyncio.AbstractEventLoop] = None,
     ) -> None:
         self._token = token
-        self._port = port
-        self._secret = webhook_secret.strip('/')
-        self._webhook_url: Optional[str]
-        if webhook_base_url is not None:
-            self._webhook_url = urljoin(webhook_base_url, self._secret)
-        else:
-            self._webhook_url = None
+        url_formatter = WebhookURLFormatter(webhook_url_template)
+        self._webhook_url = webhook_url = url_formatter(
+            port=webhook_port, secret=webhook_secret)
+        self._secret_path = urlparse(webhook_url).path
+        self._port = webhook_port
         if loop is None:
             loop = asyncio.get_event_loop()
         self._loop = loop
@@ -105,8 +112,7 @@ class WhoDatBot:
     async def init(self) -> None:
         self._client = BotAPIClient(token=self._token, loop=self._loop)
         self._username = await self._client.get_username()
-        if self._webhook_url:
-            await self._client.set_webhook(self._webhook_url)
+        await self._client.set_webhook(self._webhook_url)
         self._dispatcher_task = asyncio.create_task(self._dispatcher.run())
 
     async def close(self) -> None:
@@ -116,7 +122,7 @@ class WhoDatBot:
         dispatcher_queue = self._dispatcher.queue
         # Obscure (hah) any error with 403 FORBIDDEN
         error_status = HTTPStatus.FORBIDDEN
-        if request.method != 'POST' or request.path.strip('/') != self._secret:
+        if request.method != 'POST' or request.path != self._secret_path:
             return Response(status=error_status)
         try:
             update: Update = await request.json()

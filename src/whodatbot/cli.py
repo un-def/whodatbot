@@ -2,7 +2,7 @@ import argparse
 import asyncio
 import logging
 import os
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 from .bot import WhoDatBot
 
@@ -43,9 +43,9 @@ class StoreEnvVarAction(argparse._StoreAction):
 class Args:
 
     token: str
-    port: int
+    webhook_url_template: str
     webhook_secret: str
-    webhook_base_url: Optional[str]
+    webhook_port: int
 
 
 def parse_args() -> Args:
@@ -53,34 +53,39 @@ def parse_args() -> Args:
     parser.register('action', 'store_envvar', StoreEnvVarAction)
     parser.add_argument(
         '--token',
-        help='bot API token',
+        required=True,
         action='store_envvar',
         envvar='WHODATBOT_API_TOKEN',
-        required=True,
+        metavar='TOKEN',
+        help='bot API token',
     )
     parser.add_argument(
-        '--port',
-        help='HTTP port',
-        action='store_envvar',
-        envvar='WHODATBOT_HTTP_PORT',
-        type=int,
+        '--webhook-url-template',
         required=True,
+        action='store_envvar',
+        envvar='WHODATBOT_WEBHOOK_URL_TEMPLATE',
+        metavar='URL_TEMPLATE',
+        help=(
+            'URL template with required {secret} and optional {port} '
+            'placeholders, e.g., https://example.com/webhook/{secret}/path'
+        ),
     )
     parser.add_argument(
         '--webhook-secret',
-        help='secret part of webhook URL: https://example.com/<SECRET>',
+        required=True,
         action='store_envvar',
         envvar='WHODATBOT_WEBHOOK_SECRET',
-        required=True,
         metavar='SECRET',
+        help='secret part of webhook URL',
     )
     parser.add_argument(
-        '--webhook-base-url',
+        '--webhook-port',
+        required=True,
         action='store_envvar',
-        envvar='WHODATBOT_WEBHOOK_BASE_URL',
-        help='webhook base URL (without <SECRET>, e.g., https://example.com/)',
-        required=False,
-        metavar='URL',
+        type=int,
+        envvar='WHODATBOT_WEBHOOK_PORT',
+        metavar='PORT',
+        help='webhook HTTP port',
     )
     return parser.parse_args(namespace=Args())
 
@@ -89,9 +94,9 @@ async def main_coro() -> None:
     args = parse_args()
     bot = WhoDatBot(
         token=args.token,
-        port=args.port,
+        webhook_url_template=args.webhook_url_template,
         webhook_secret=args.webhook_secret,
-        webhook_base_url=args.webhook_base_url,
+        webhook_port=args.webhook_port,
     )
     try:
         await bot.init()
