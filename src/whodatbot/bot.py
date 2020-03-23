@@ -1,13 +1,13 @@
 import asyncio
 from http import HTTPStatus
-from typing import Dict, Optional
+from typing import Dict, Optional, Type
 from urllib.parse import urlparse
 
 from aiohttp import web
 from aiohttp.web import BaseRequest, Response
 
 from .client import BotAPIClient
-from .types import Message, Update
+from .types import Message, Update, UpdateID
 from .utils import LoggerDescriptor, TemplateFormatter, extract_users
 
 
@@ -17,14 +17,60 @@ class WebhookURLFormatter(TemplateFormatter):
     optional_fields = ('port',)
 
 
+class UpdateProcessor:
+
+    update_type: str
+    update_types: Dict[str, Type['UpdateProcessor']] = {}
+
+    log = LoggerDescriptor()
+
+    def __init__(self, update: Update):
+        self.update_id: UpdateID = update['update_id']
+        self.update_body = update[self.update_type]
+
+    def __init_subclass__(cls, update_type: str) -> None:
+        if update_type in cls.update_types:
+            raise RuntimeError(f'already registered: {update_type}')
+        super().__init_subclass__()
+        cls.update_type = update_type
+        cls.update_types[update_type] = cls
+
+    @classmethod
+    def dispatch(cls, update: Update) -> 'UpdateProcessor':
+        cls.log.info('dispatching update: %s', update)
+        keys = list(update.keys())
+        if 'update_id' not in keys:
+            raise ValueError(f'update_id not found: {keys}')
+        keys.remove('update_id')
+        if len(keys) != 1:
+            raise ValueError(f'invalid update: {keys}')
+        update_type = keys[0]
+        if update_type not in cls.update_types:
+            raise KeyError(f'unsupported update type: {update_type}')
+        processor = cls.update_types[update_type]
+        return processor(update)
+
+    def __call__(self) -> None:
+        raise NotImplementedError
+
+
+class MessageProcessor(UpdateProcessor, update_type='message'):
+
+    def __call__(self) -> None:
+        message: Message = self.update_body
+        for user in extract_users(message):
+            self.log.info(user)
+
+
 class UpdateDispatcher:
+
+    processor_class = UpdateProcessor
 
     log = LoggerDescriptor()
 
     def __init__(self) -> None:
         self.queue: asyncio.Queue[Optional[Update]] = asyncio.Queue()
         self._running = False
-        self._processor = UpdateProcessor()
 
     async def run(self) -> None:
         if self._running:
@@ -43,45 +89,10 @@ class UpdateDispatcher:
             if update is None:
                 break
             try:
-                self._processor(update)
+                processor = self.processor_class.dispatch(update)
+                processor()
             except Exception:
                 self.log.exception('')
-
-
-class UpdateProcessor:
-
-    log = LoggerDescriptor()
-    update_type: str
-    update_types: Dict[str, 'UpdateProcessor'] = {}
-
-    def __init_subclass__(cls, update_type: str) -> None:
-        if update_type in cls.update_types:
-            raise RuntimeError(f'already registered: {update_type}')
-        super().__init_subclass__()
-        cls.update_type = update_type
-        cls.update_types[update_type] = cls()
-
-    def __call__(self, update: Update) -> None:
-        self.log.info(update)
-        keys = list(update.keys())
-        if 'update_id' not in keys:
-            raise ValueError(f'update_id not found: {keys}')
-        keys.remove('update_id')
-        if len(keys) != 1:
-            raise ValueError(f'invalid update: {keys}')
-        update_type = keys[0]
-        if update_type not in self.update_types:
-            raise KeyError(f'unsupported update type: {update_type}')
-        processor = self.update_types[update_type]
-        processor(update)
-
-
-class MessageProcessor(UpdateProcessor, update_type='message'):
-
-    def __call__(self, update: Update) -> None:
-        message: Message = update[self.update_type]
-        for user in extract_users(message):
-            self.log.info(user)
 
 
 class WhoDatBot:

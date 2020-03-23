@@ -1,6 +1,8 @@
 from typing import Any, Dict, NewType, Optional, TypedDict
 
 
+UpdateID = NewType('UpdateID', int)
+
 Update = Dict[str, Any]
 Message = Dict[str, Any]
 
