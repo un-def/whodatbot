@@ -99,7 +99,6 @@ async def main_coro() -> None:
         webhook_port=args.webhook_port,
     )
     try:
-        await bot.init()
         await bot.run()
     finally:
         await bot.close()

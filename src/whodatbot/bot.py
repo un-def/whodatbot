@@ -1,6 +1,6 @@
 import asyncio
 from http import HTTPStatus
-from typing import Dict, Optional, Type
+from typing import Callable, Dict, Optional, Type
 from urllib.parse import urlparse
 
 from aiohttp import web
@@ -95,6 +95,50 @@ class UpdateDispatcher:
                 self.log.exception('')
 
 
+class WebhookServer:
+
+    log = LoggerDescriptor()
+
+    def __init__(
+        self, *, port: int, secret_path: str,
+        on_update: Callable[[Update], None],
+        on_close: Optional[Callable[[], None]] = None,
+        loop: Optional[asyncio.AbstractEventLoop] = None,
+    ) -> None:
+        self._port = port
+        self._secret_path = secret_path
+        self._on_update = on_update
+        self._on_close = on_close
+        if loop is None:
+            loop = asyncio.get_event_loop()
+        self._loop = loop
+
+    async def handler(self, request: BaseRequest) -> Response:
+        # Obscure (hah) any error with 403 FORBIDDEN
+        error_status = HTTPStatus.FORBIDDEN
+        if request.method != 'POST' or request.path != self._secret_path:
+            return Response(status=error_status)
+        try:
+            update: Update = await request.json()
+        except ValueError:
+            return Response(status=error_status)
+        self._on_update(update)
+        return Response(status=HTTPStatus.NO_CONTENT)
+
+    async def run(self) -> None:
+        server = web.Server(self.handler)
+        runner = web.ServerRunner(server)
+        await runner.setup()
+        site = web.TCPSite(runner, 'localhost', self._port)
+        try:
+            await site.start()
+            while True:
+                await asyncio.sleep(3600)
+            await self._dispatcher.queue.put(None)
+        finally:
+            await runner.cleanup()
+
+
 class WhoDatBot:
 
     dispatcher_class = UpdateDispatcher
@@ -109,53 +153,36 @@ class WhoDatBot:
         webhook_port: int,
         loop: Optional[asyncio.AbstractEventLoop] = None,
     ) -> None:
-        self._token = token
-        url_formatter = WebhookURLFormatter(webhook_url_template)
-        self._webhook_url = webhook_url = url_formatter(
+        webhook_url_formatter = WebhookURLFormatter(webhook_url_template)
+        self._webhook_url = webhook_url = webhook_url_formatter(
             port=webhook_port, secret=webhook_secret)
-        self._secret_path = urlparse(webhook_url).path
-        self._port = webhook_port
         if loop is None:
             loop = asyncio.get_event_loop()
         self._loop = loop
         self._dispatcher = self.dispatcher_class()
+        self._client = BotAPIClient(token=token, loop=loop)
+        self._server = WebhookServer(
+            port=webhook_port, secret_path=urlparse(webhook_url).path,
+            on_update=self.on_update,
+        )
 
-    async def init(self) -> None:
-        self._client = BotAPIClient(token=self._token, loop=self._loop)
+    async def run(self) -> None:
         self._username = await self._client.get_username()
         await self._client.set_webhook(self._webhook_url)
         self._dispatcher_task = asyncio.create_task(self._dispatcher.run())
+        await self._server.run()
 
     async def close(self) -> None:
+        await self._dispatcher.queue.put(None)
         await self._client.close()
+        await self._task_cleanup()
 
-    async def handler(self, request: BaseRequest) -> Response:
-        dispatcher_queue = self._dispatcher.queue
-        # Obscure (hah) any error with 403 FORBIDDEN
-        error_status = HTTPStatus.FORBIDDEN
-        if request.method != 'POST' or request.path != self._secret_path:
-            return Response(status=error_status)
-        try:
-            update: Update = await request.json()
-        except ValueError:
-            return Response(status=error_status)
-        dispatcher_queue.put_nowait(update)
-        return Response(status=HTTPStatus.NO_CONTENT)
+    def on_update(self, update: Update) -> None:
+        self._dispatcher.queue.put_nowait(update)
 
-    async def run(self) -> None:
-        server = web.Server(self.handler)
-        runner = web.ServerRunner(server, handle_signals=True)
-        await runner.setup()
-        site = web.TCPSite(runner, 'localhost', self._port)
-        try:
-            await site.start()
-            while True:
-                await asyncio.sleep(3600)
-            await self._dispatcher.queue.put(None)
-        finally:
-            await runner.cleanup()
-            current_task = asyncio.current_task()
-            tasks = [t for t in asyncio.all_tasks() if t is not current_task]
-            for task in tasks:
-                task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+    async def _task_cleanup(self) -> None:
+        current_task = asyncio.current_task()
+        tasks = [t for t in asyncio.all_tasks() if t is not current_task]
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
